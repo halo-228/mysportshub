@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#05071a"/>
+      <stop offset=".6" stop-color="#121046"/>
+      <stop offset="1" stop-color="#2a0b57"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d4ff3a"/>
+      <stop offset=".5" stop-color="#5cf2b0"/>
+      <stop offset="1" stop-color="#2ee6ff"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6ff7a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="48%" r="50%">
+      <stop offset="0" stop-color="#2ee6ff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#2ee6ff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="crest"><path d="M256 70 L410 118 V250 C410 352 340 418 256 450 C172 418 102 352 102 250 V118 Z"/></clipPath>
+    <filter id="blur" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="12"/></filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#glow)"/>
+  <!-- 방패(엠블럼) -->
+  <path d="M256 70 L410 118 V250 C410 352 340 418 256 450 C172 418 102 352 102 250 V118 Z" fill="#0b0f2e"/>
+  <g clip-path="url(#crest)">
+    <!-- 왼쪽: 축구공 패널 -->
+    <g fill="none" stroke="#d4ff3a" stroke-opacity=".55" stroke-width="7" stroke-linejoin="round">
+      <path d="M180 214 l40 29 -15 47 h-50 l-15 -47 z" fill="#d4ff3a" fill-opacity=".18"/>
+      <path d="M180 214 v-48 M220 243 l46 -15 M205 290 l28 40 M155 290 l-28 40 M140 243 l-46 -15"/>
+    </g>
+    <!-- 오른쪽: e스포츠 회로 -->
+    <g fill="none" stroke="#2ee6ff" stroke-opacity=".6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M300 170 h40 l24 24 v36"/>
+      <path d="M318 330 h34 l26 -26"/>
+      <circle cx="364" cy="246" r="9" fill="#2ee6ff"/>
+      <circle cx="292" cy="170" r="8" fill="#2ee6ff"/>
+      <circle cx="386" cy="298" r="8" fill="#2ee6ff"/>
+    </g>
+  </g>
+  <path d="M256 70 L410 118 V250 C410 352 340 418 256 450 C172 418 102 352 102 250 V118 Z" fill="none" stroke="url(#rim)" stroke-width="18" stroke-linejoin="round"/>
+  <!-- 번개 -->
+  <path d="M286 120 L184 292 H252 L222 404 L334 236 H264 Z" fill="#d4ff3a" filter="url(#blur)" opacity=".8"/>
+  <path d="M286 120 L184 292 H252 L222 404 L334 236 H264 Z" fill="url(#bolt)" stroke="#0b0f2e" stroke-width="8" stroke-linejoin="round"/>
+</svg>
