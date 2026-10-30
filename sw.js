@@ -1,7 +1,7 @@
 /* 서비스 워커: 화면 파일·로고만 캐시. 일정 데이터(/data/)와 라인업(ESPN)은 항상 네트워크(HTTP 304 캐시)로. */
-const V = 'sh-v3', IMG = 'sh-img-v2';
+const V = 'sh-v5', IMG = 'sh-img-v2';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'assets/icon.svg', 'assets/watch/naver.svg',
-  'assets/watch/coupang.png', 'assets/watch/spotv.png', 'assets/watch/chzzk.png', 'assets/watch/soop.png'];
+  'assets/watch/coupang.png', 'assets/watch/spotv.png', 'assets/watch/chzzk.png', 'assets/watch/soop.png', 'assets/watch/youtube.png'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {

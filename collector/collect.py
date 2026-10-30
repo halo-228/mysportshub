@@ -100,6 +100,23 @@ KO = {  # ESPN 영문 이름 → 한국어 (없으면 영문 그대로)
     'Denmark': '덴마크', 'Sweden': '스웨덴', 'Turkey': '튀르키예', 'Scotland': '스코틀랜드', 'Wales': '웨일스', 'New Zealand': '뉴질랜드', 'Panama': '파나마', 'Costa Rica': '코스타리카',
 }
 
+# 한국 선수 한글 이름 (ESPN 영문 표기 → 한글). 국적 판별은 ESPN 로스터의 citizenship 으로 하고, 이건 이름 표시용.
+KR_NAMES = {
+    'Son Heung-Min': '손흥민', 'Lee Kang-In': '이강인', 'Kim Min-Jae': '김민재', 'Hwang Hee-Chan': '황희찬',
+    'Hwang In-Beom': '황인범', 'Lee Jae-Sung': '이재성', 'Oh Hyeon-Gyu': '오현규', 'Cho Gue-Sung': '조규성',
+    'Seol Young-Woo': '설영우', 'Paik Seung-Ho': '백승호', 'Lee Han-Beom': '이한범', 'Kim Ji-Soo': '김지수',
+    'Kim Seung-Gyu': '김승규', 'Jo Hyeon-Woo': '조현우', 'Gu Sung-Yun': '구성윤', 'Song Bum-Keun': '송범근',
+    'Kim Tae-Hyeon': '김태현', 'Kim Tae-Hyun': '김태현', 'Lee Tae-Seok': '이태석', 'Cho Hyun-taek': '조현택',
+    'Kim Geon-Hui': '김건희', 'Cho Wi-Je': '조위제', 'Lee Dong-Gyeong': '이동경', 'Jeong Seung-Won': '정승원',
+    'Park Tae-Jun': '박태준', 'Park Jin-Seop': '박진섭', 'Kim Bong-Soo': '김봉수', 'Oh Se-Hun': '오세훈',
+    'Song Min-Kyu': '송민규', 'Kim Min-Su': '김민수', 'Bae Jun-Ho': '배준호', 'Yang Min-Hyeok': '양민혁',
+    'Jeong Woo-Yeong': '정우영', 'Eom Ji-Sung': '엄지성', 'Hong Hyun-Seok': '홍현석', 'Yun Do-Young': '윤도영',
+    'Park Seung-Soo': '박승수', 'Jens Castrop': '옌스 카스트로프', 'Kim Jin-Gyu': '김진규', 'Jun Choi': '최준',
+}
+STANDINGS = os.path.join(ROOT, 'data', 'standings.json')
+STAND_LEAGUES = [('epl', 'eng.1', '프리미어리그'), ('laliga', 'esp.1', '라리가'), ('ucl', 'uefa.champions', '챔피언스리그')]
+
+
 # ── HTTP ──────────────────────────────────────────────────────────────────
 def http(url, params=None, tries=3, timeout=25, raw=False):
     if params:
@@ -245,7 +262,7 @@ def collect_football(month_from):
                 tm = t['team']
                 tid = str(tm['id'])
                 team_info[tid] = {'name': KO.get(tm['displayName'], tm['displayName']), 'group': group,
-                                  'logo_url': espn_logo_url(tm)}
+                                  'logo_url': espn_logo_url(tm), 'league': league}
         except Exception as e:  # noqa: BLE001
             errors.append(group)
             print(f'! {group} 팀 목록: {e}', file=sys.stderr)
@@ -261,15 +278,101 @@ def collect_football(month_from):
                 print(f'! {info["name"]} 일정: {e}', file=sys.stderr)
                 if info['name'] not in errors:
                     errors.append(info['name'])
+        done = {}
         for e in evs:
-            if not e.get('date') or kst_iso(e['date'])[:10] < month_from:
+            if not e.get('date'):
                 continue
             slug = (e.get('league') or {}).get('slug') or ''
             g = parse_espn_event(e, slug, team_info)
-            games[g['id']] = g
+            if g['status'] == 'end' and g['score']:
+                done[g['id']] = g
+            if kst_iso(e['date'])[:10] >= month_from:
+                games[g['id']] = g
         teams[f'f:{tid}'] = {'key': f'f:{tid}', 'name': info['name'], 'group': info['group'], 'sport': 'football',
-                             '_logo_url': info.get('logo_url'), '_logo_fixed': info.get('logo'), '_espn': tid}
+                             '_logo_url': info.get('logo_url'), '_logo_fixed': info.get('logo'), '_espn': tid,
+                             'form': form_of(f'f:{tid}', done.values()), '_league': info.get('league')}
     return teams, list(games.values()), errors
+
+
+def form_of(key, games, n=5):
+    """끝난 경기들 → 최근 n경기 결과 문자열 (오래된 것 → 최근, W/D/L). 승부차기는 무승부로 친다."""
+    out = []
+    for g in sorted(games, key=lambda g: g['start']):
+        if g['status'] != 'end' or not g.get('score') or None in g['score']:
+            continue
+        if key not in (g['home']['key'], g['away']['key']):
+            continue
+        me, op = g['score'] if g['home']['key'] == key else g['score'][::-1]
+        out.append('W' if me > op else 'L' if me < op else 'D')
+    return ''.join(out[-n:]) or None
+
+
+def collect_korean(teams):
+    """ESPN 로스터 국적(citizenship)으로 한국 선수 찾기 → ({선수id: 한글이름}, {팀key: [{id,name,n}]})"""
+    kr, by_team = {}, {}
+    is_kr = lambda a: a.get('citizenship') in ('South Korea', 'Korea Republic') or (a.get('citizenshipCountry') or {}).get('abbreviation') == 'KOR'
+    name = lambda a: KR_NAMES.get(a.get('displayName'), a.get('displayName'))
+    for n in NATIONAL:
+        try:
+            for a in http(f'{ESPN}/fifa.friendly/teams/{n["id"]}/roster').get('athletes', []):
+                kr[str(a['id'])] = name(a)
+        except Exception as e:  # noqa: BLE001
+            print(f'! 대표팀 명단: {e}', file=sys.stderr)
+    for t in teams.values():
+        if not t.get('_league'):
+            continue
+        try:
+            for a in http(f'{ESPN}/{t["_league"]}/teams/{t["_espn"]}/roster').get('athletes', []):
+                if is_kr(a):
+                    kr[str(a['id'])] = name(a)
+                    by_team.setdefault(t['key'], []).append({'id': str(a['id']), 'name': name(a), 'n': a.get('jersey') or ''})
+        except Exception as e:  # noqa: BLE001
+            print(f'! {t["name"]} 로스터: {e}', file=sys.stderr)
+    return kr, by_team
+
+
+def collect_standings(lck_games, teams_by_key):
+    """EPL·라리가·챔스(ESPN 공식 순위) + LCK(올해 정규시즌 경기 결과로 집계)"""
+    out = {}
+    for slug, league, name in STAND_LEAGUES:
+        try:
+            d = http(f'https://site.api.espn.com/apis/v2/sports/soccer/{league}/standings')
+            child = (d.get('children') or [{}])[0]
+            rows = []
+            for e in (child.get('standings') or {}).get('entries') or []:
+                st = {x['name']: x.get('value') for x in e.get('stats', [])}
+                tm = e['team']
+                key = f'f:{tm["id"]}'
+                known = teams_by_key.get(key)
+                note = e.get('note') or {}
+                rows.append({'key': key, 'name': known['name'] if known else KO.get(tm['displayName'], tm['displayName']),
+                             'logo': (known or {}).get('logo') or ensure_logo(f'f/{tm["id"]}', espn_logo_url(tm)),
+                             'r': int(st.get('rank') or 0), 'p': int(st.get('gamesPlayed') or 0), 'w': int(st.get('wins') or 0),
+                             'd': int(st.get('ties') or 0), 'l': int(st.get('losses') or 0), 'gd': int(st.get('pointDifferential') or 0),
+                             'pts': int(st.get('points') or 0), 'z': note.get('color'), 'zn': note.get('description')})
+            rows.sort(key=lambda r: r['r'] or 99)
+            out[slug] = {'name': name, 'season': child.get('name') or '', 'src': 'ESPN', 'rows': rows}
+        except Exception as e:  # noqa: BLE001
+            print(f'! 순위 {name}: {e}', file=sys.stderr)
+    # LCK: 올해 lck_YYYY 정규시즌 경기만으로 승패·세트 득실 집계
+    reg = [g for g in lck_games if g.get('_lid', '').startswith('lck_') and g.get('_lid', '').count('_') == 1
+           and (g.get('round') or '').startswith('정규시즌') and g['status'] == 'end' and g.get('score')]
+    tab = {}
+    for g in reg:
+        for side, me, op in (('home', 0, 1), ('away', 1, 0)):
+            t = g[side]
+            r = tab.setdefault(t['key'], {'key': t['key'], 'name': t['name'], 'logo': (teams_by_key.get(t['key']) or {}).get('logo'),
+                                          'p': 0, 'w': 0, 'l': 0, 'sw': 0, 'sl': 0})
+            r['p'] += 1
+            r['sw'] += g['score'][me]; r['sl'] += g['score'][op]
+            r['w' if g['score'][me] > g['score'][op] else 'l'] += 1
+    if tab:
+        rows = sorted(tab.values(), key=lambda r: (-r['w'], -(r['sw'] - r['sl']), r['name']))
+        for i, r in enumerate(rows, 1):
+            r['r'] = i; r['gd'] = r['sw'] - r['sl']
+        season = sorted({g['_lid'] for g in reg})[-1]
+        out['lck'] = {'name': 'LCK', 'season': f'{season[4:8]} LCK 정규시즌', 'src': '네이버 e스포츠 경기 결과로 집계', 'rows': rows}
+    return out
 
 
 # ── 롤 (네이버 e스포츠) ─────────────────────────────────────────────────────
@@ -289,7 +392,7 @@ def parse_lol(m, lname):
         'id': f'l{m["gameId"]}', 'sport': 'lol', 'lg': m.get('topLeagueId'), 'comp': lname, 'round': m.get('title'),
         'start': kst_iso(m['startDate']), 'status': status,
         'score': [m.get('homeScore'), m.get('awayScore')] if status in ('live', 'end') else None,
-        'bo': m.get('maxMatchCount'), 'neutral': True, 'venue': m.get('stadium') or None, 'home': side(m.get('homeTeam')), 'away': side(m.get('awayTeam')),
+        '_lid': m.get('leagueId') or '', 'bo': m.get('maxMatchCount'), 'neutral': True, 'venue': m.get('stadium') or None, 'home': side(m.get('homeTeam')), 'away': side(m.get('awayTeam')),
     }
 
 
@@ -407,7 +510,7 @@ def finalize_side(s, codes, logo_cache):
 
 
 def write_if_changed(out, old):
-    keep = lambda d: json.dumps({k: d.get(k) for k in ('teams', 'games', 'errors')}, sort_keys=True, ensure_ascii=False)
+    keep = lambda d: json.dumps({k: d.get(k) for k in ('teams', 'games', 'errors', 'kr')}, sort_keys=True, ensure_ascii=False)
     if old and keep(out) == keep(old):
         print('변경 없음 — 저장하지 않음')
         return False
@@ -434,10 +537,12 @@ def full():
     fteams, fgames, ferr = collect_football(month_from)
     lgames, lerr = collect_lol(months(prev_month, 8))
     lgames = [g for g in lgames if g['start'][:10] >= month_from]
-    lteams = lol_teams(lgames, old.get('teams', []))
-    if sum(t['group'] == 'LCK' for t in lteams.values()) < 10:      # 비시즌엔 최근 경기에 LCK 팀이 다 안 나오므로 올해 LCK 전체로 팀 목록 보충
-        extra, _ = collect_lol_league('lck', 'LCK', months(dt.date(now.year, 1, 1), now.month))
-        lteams = lol_teams(extra + lgames, list(lteams.values()))
+    # 올해 LCK 전체: 팀 목록 보충(비시즌 대비) + 순위 집계 + 최근 폼
+    year_lck, _ = collect_lol_league('lck', 'LCK', months(dt.date(now.year, 1, 1), now.month))
+    lteams = lol_teams(year_lck + lgames, old.get('teams', []))
+    all_lol = {g['id']: g for g in year_lck + lgames}.values()
+    for t in lteams.values():
+        t['form'] = form_of(t['key'], all_lol)
     if not fgames and not lgames:
         sys.exit('모든 수집 실패 — 기존 데이터 유지')
 
@@ -448,21 +553,38 @@ def full():
             json.dump(dict(sorted(codes.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 0)), f, ensure_ascii=False, indent=1)
         print(f'네이버 teamCode {n}개 새로 확인')
 
+    kr, kr_team = collect_korean(fteams)
     logo_cache = {}
     teams = []
     for t in list(fteams.values()) + list(lteams.values()):
         s = finalize_side({**t, '_logo_fixed': t.get('_logo_fixed')}, codes, logo_cache)
-        teams.append({**s, 'group': t['group'], 'sport': t['sport']})
+        extra = {k: v for k, v in (('form', t.get('form')), ('kr', kr_team.get(t['key']))) if v}
+        teams.append({**s, 'group': t['group'], 'sport': t['sport'], **extra})
     games = []
     for g in sorted(fgames + lgames, key=lambda g: (g['start'], g['id'])):
-        g = {k: v for k, v in g.items() if v is not None}
+        g = {k: v for k, v in g.items() if v is not None and not k.startswith('_')}
         g['home'] = finalize_side(g['home'], codes, logo_cache)
         g['away'] = finalize_side(g['away'], codes, logo_cache)
         games.append(g)
     order = {'프리미어리그': 0, '라리가': 1, '국가대표': 2, 'LCK': 3, '해외 (LoL)': 4}
     teams.sort(key=lambda t: (order.get(t['group'], 9), t['name']))
-    out = {'updated': now.isoformat(timespec='seconds'), 'errors': ferr + lerr, 'teams': teams, 'games': games}
+    # 경기 전 라인업에서 확인한 한국 선수 선발 여부(krl)는 hot 모드가 채우므로 유지
+    old_krl = {g['id']: g['krl'] for g in old.get('games', []) if g.get('krl')}
+    for g in games:
+        if g['id'] in old_krl:
+            g['krl'] = old_krl[g['id']]
+    out = {'updated': now.isoformat(timespec='seconds'), 'errors': ferr + lerr, 'teams': teams, 'games': games, 'kr': kr}
     write_if_changed(out, old)
+
+    st = collect_standings(year_lck, {t['key']: t for t in teams})
+    try:
+        old_st = json.load(open(STANDINGS, encoding='utf-8'))
+    except Exception:  # noqa: BLE001
+        old_st = {}
+    if st and json.dumps(st, sort_keys=True) != json.dumps(old_st.get('tables'), sort_keys=True):
+        with open(STANDINGS, 'w', encoding='utf-8') as f:
+            json.dump({'updated': now.isoformat(timespec='seconds'), 'tables': st}, f, ensure_ascii=False, separators=(',', ':'))
+        print('순위표 저장:', ', '.join(f'{k} {len(v["rows"])}팀' for k, v in st.items()))
 
 
 def hot():
@@ -475,7 +597,7 @@ def hot():
     for g in old['games']:
         st = dt.datetime.fromisoformat(g['start'])
         mins = (now - st).total_seconds() / 60
-        if g['status'] == 'live' or (g['status'] == 'before' and -20 <= mins <= 240):
+        if g['status'] == 'live' or (g['status'] == 'before' and -75 <= mins <= 240):
             targets.append(g)
     if not targets:
         print('확인할 경기 없음')
@@ -529,6 +651,28 @@ def hot():
             if new != g:
                 by_id[g['id']] = new
                 changed += 1
+    # 한국 선수 선발 여부: 킥오프 75분 전부터, 한국 선수가 있는 팀 경기만 라인업 확인 (확인되면 다시 안 봄)
+    kr = old.get('kr') or {}
+    kr_teams = {t['key'] for t in old.get('teams', []) if t.get('kr')} | {f'f:{n["id"]}' for n in NATIONAL}
+    for g in targets:
+        g = by_id[g['id']]
+        if g['sport'] != 'football' or g.get('krl') or not ({g['home']['key'], g['away']['key']} & kr_teams):
+            continue
+        try:
+            j = http(f'{ESPN}/{g["lg"] or "all"}/summary', {'event': g['id'][1:]}, tries=1)
+        except Exception as e:  # noqa: BLE001
+            print(f'! 라인업 {g["id"]}: {e}', file=sys.stderr)
+            continue
+        found, starters = [], 0
+        for r in j.get('rosters') or []:
+            for p in r.get('roster') or []:
+                starters += bool(p.get('starter'))
+                a = p.get('athlete') or {}
+                if str(a.get('id')) in kr or a.get('displayName') in KR_NAMES:
+                    found.append({'name': kr.get(str(a.get('id'))) or KR_NAMES.get(a.get('displayName')), 's': 1 if p.get('starter') else 0})
+        if starters >= 22:                                  # 양 팀 선발 발표가 끝났을 때만 기록
+            by_id[g['id']] = dict(g, krl=found or [{'name': '', 's': -1}])
+            changed += 1
     if not changed:
         print('변경 없음')
         return

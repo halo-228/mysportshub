@@ -19,11 +19,14 @@ const CFG = {
     spotv:   { name: '스포티비',   url: 'https://www.spotvnow.co.kr/',         logo: 'assets/watch/spotv.png' },
     chzzk:   { name: '치지직 울프', url: 'https://chzzk.naver.com/live/0b33823ac81de48d5b78a38cdbc0ab94', logo: 'assets/watch/chzzk.png' },
     soop:    { name: '숲 스맵',     url: 'https://play.sooplive.com/townboy/298226683', logo: 'assets/watch/soop.png' },
+    youtube: { name: '박종윤 (YouTube)', url: 'https://www.youtube.com/@PJY_football', logo: 'assets/watch/youtube.png', always: true },
   },
+  // 대회 → 중계처 (always: 종료된 경기에도 표시 — 경기 후 리뷰 영상용)
   watchBy: (g) =>
     g.sport === 'lol' ? ['chzzk', 'soop']
-      : g.lg === 'eng.1' || g.lg === 'esp.1' ? ['coupang']
-        : /^uefa\./.test(g.lg || '') ? ['spotv'] : [],
+      : (g.lg === 'eng.1' || g.lg === 'esp.1' ? ['coupang'] : /^uefa\./.test(g.lg || '') ? ['spotv'] : []).concat('youtube'),
+  // 실제 마지막 동기화 시각: GitHub Actions 실행 기록 (공개 API, 로그인 불필요)
+  runsUrl: (o, r) => `https://api.github.com/repos/${o}/${r}/actions/workflows/sync.yml/runs?per_page=5`,
   // 대회 배지: [영문 약칭, 한글, 색 클래스, 필터 묶음]
   comp: {
     'eng.1': ['EPL', '프리미어리그', 'epl', 'league'],
@@ -106,6 +109,34 @@ const core = {
   watchFor: (g, cfg = CFG) => cfg.watchBy(g).map((id) => ({ id, ...cfg.watch[id] })),
   canLineup: (g) => g.sport === 'football' && g.status !== 'off',
 
+  /** 아이디.github.io/저장소/ → {owner, repo}. GitHub Pages 가 아니면 null */
+  repoFromLocation(host, path) {
+    const m = /^([a-z0-9-]+)\.github\.io$/i.exec(host || '');
+    if (!m) return null;
+    const seg = (path || '/').split('/').filter(Boolean)[0];
+    return { owner: m[1], repo: seg && !/\.html?$/.test(seg) ? seg : `${m[1]}.github.io` };
+  },
+
+  /** 끝난 경기 하이라이트: 유튜브 검색 결과로 바로 */
+  highlightUrl(g) {
+    const ci = core.compInfo(g);
+    const q = g.sport === 'lol' ? `${g.home.abbr || g.home.name} vs ${g.away.abbr || g.away.name} ${ci.abbr || 'LoL'} 하이라이트`
+      : `${g.home.name} ${g.away.name} 하이라이트 ${ci.name}`;
+    return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+  },
+
+  /** ESPN 순위 구간 설명 → 한글 */
+  zoneLabel: (zn) => ({
+    'Champions League': '챔스 진출', 'Europa League': '유로파 진출', 'Conference League qualifying': '컨퍼런스 예선',
+    'Relegation': '강등', 'Qualifies for round of 16': '16강 직행', 'Knockout phase playoffs - seeded': 'PO (시드)',
+    'Knockout phase playoffs - unseeded': 'PO (비시드)', 'Eliminated': '탈락',
+  }[zn] || zn || ''),
+
+  agoText(ms) {
+    const m = Math.max(0, Math.round(ms / 60e3));
+    return m < 1 ? '방금 전' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.floor(m / 60)}시간 ${m % 60 ? `${m % 60}분 ` : ''}전` : `${Math.floor(m / 1440)}일 전`;
+  },
+
   compInfo(g, cfg = CFG) {
     const c = cfg.comp[g.lg];
     if (!c) return { abbr: '', name: g.comp, cls: g.sport === 'lol' ? 'lck' : 'cup', grp: g.sport === 'lol' ? 'lolint' : 'cup' };
@@ -157,7 +188,7 @@ const core = {
     }
     return out.home && out.away ? out : null;
   },
-  player: (p) => ({ n: p.jersey || '', name: (p.athlete && (p.athlete.shortName || p.athlete.displayName)) || '', pos: (p.position && p.position.abbreviation) || '' }),
+  player: (p) => ({ id: String((p.athlete && p.athlete.id) || ''), n: p.jersey || '', name: (p.athlete && (p.athlete.shortName || p.athlete.displayName)) || '', pos: (p.position && p.position.abbreviation) || '' }),
 
   /** 포지션 코드로 앞뒤(깊이)·좌우를 정하고, 포메이션 숫자대로 줄을 나눈다 */
   formationRows(starters, formation) {
@@ -230,11 +261,18 @@ if (typeof document !== 'undefined') {
     $('today').textContent = `기준일: ${t.slice(0, 4)}년 ${core.md(t)} (${core.wd(t)}) KST`;
     const ss = $('syncState');
     if (S.data) {
-      const mins = Math.max(0, Math.round((Date.now() - Date.parse(S.data.updated)) / 60e3));
-      const ago = mins < 1 ? '방금 전' : mins < 60 ? `${mins}분 전` : mins < 1440 ? `${Math.floor(mins / 60)}시간 전` : `${Math.floor(mins / 1440)}일 전`;
-      const bad = S.data.errors && S.data.errors.length;
-      ss.className = 'sync' + (bad ? ' warn' : mins > 1500 ? ' stale' : '');
-      ss.innerHTML = `<i class="dot"></i><span>${ago} ${bad ? `동기화 (일부 실패: ${esc(S.data.errors.join(', '))})` : '(자동 동기화 완료)'}</span>`;
+      // 실제 값: ① GitHub Actions 마지막 실행 시각(수집기가 확인한 시각) ② 일정 파일이 마지막으로 바뀐 시각
+      const changed = core.agoText(Date.now() - Date.parse(S.data.updated));
+      const run = S.run;
+      const bad = (S.data.errors && S.data.errors.length) || (run && run.conclusion !== 'success');
+      const age = run ? Date.now() - Date.parse(run.updated_at) : Date.now() - Date.parse(S.data.updated);
+      ss.className = 'sync' + (bad ? ' warn' : age > 60 * 60e3 ? ' stale' : '');
+      const main = run
+        ? (run.conclusion === 'success' ? `${core.agoText(age)} 자동 동기화 완료` : `${core.agoText(age)} 동기화 실패 — Actions 탭 확인`)
+        : `${changed} 일정 갱신`;
+      const errs = S.data.errors && S.data.errors.length ? ` · 일부 수집 실패: ${esc(S.data.errors.join(', '))}` : '';
+      ss.innerHTML = `<i class="dot"></i><span>${main}</span><small>${run ? ` · 일정 변경 ${changed}` : ''}${errs}</small>`;
+      ss.title = `일정 파일 기준 시각: ${new Date(S.data.updated).toLocaleString('ko-KR')}` + (run ? `\n마지막 수집 실행: ${new Date(run.updated_at).toLocaleString('ko-KR')}` : '');
     }
     $('cnt').textContent = S.sel.size;
     const sp = $('spoiler');
@@ -270,7 +308,7 @@ if (typeof document !== 'undefined') {
     box.innerHTML = `<p class="stat-k next-k">NEXT MATCH · 가장 빠른 일정 <span class="cd">${cd}</span></p>
       <div class="next-b"><div class="next-m"><p class="next-t"><span class="nt">${logo(nx.home, 'lg sm')}<b>${esc(nx.home.name)}</b></span><i>vs</i><span class="nt">${logo(nx.away, 'lg sm')}<b>${esc(nx.away.name)}</b></span></p>
       <p class="next-s">${core.md(d)} (${core.wd(d)}) ${core.hm(nx.start)} · <span class="c-${ci.cls}-t">${esc(ci.name)}</span></p></div>
-      ${nv ? ext(nv, 'nvbtn', `${nx.sport === 'lol' ? '네이버 중계' : '네이버 일정'}${ic('ext')}`) : ''}</div>`;
+      <div class="next-a">${nv ? ext(nv, 'nvbtn', `${nx.sport === 'lol' ? '네이버 중계' : '네이버 일정'}${ic('ext')}`) : ''}${core.watchFor(nx).map((w) => ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`)).join('')}</div></div>`;
   }
 
   function renderFav() {
@@ -295,7 +333,9 @@ if (typeof document !== 'undefined') {
   function teamBox(t, g, isHome) {
     const star = S.sel.has(t.key) ? ic('star', 'fill gold star') : '';
     const ha = core.showHomeAway(g) ? `<small>${isHome ? 'HOME' : 'AWAY'}</small>` : '';
-    const name = `<div class="tn">${isHome ? '' : ''}<b>${isHome ? star : ''}${esc(t.name)}${isHome ? '' : star}</b>${ha}</div>`;
+    const tt = S.teamByKey.get(t.key);
+    const form = tt && tt.form ? `<span class="fm" title="최근 ${tt.form.length}경기 (왼쪽이 오래된 경기)">${[...tt.form].map((r) => `<i class="r${r}">${{ W: '승', D: '무', L: '패' }[r]}</i>`).join('')}</span>` : '';
+    const name = `<div class="tn"><b>${isHome ? star : ''}${esc(t.name)}${isHome ? '' : star}</b><span class="tsub">${ha}${form}</span></div>`;
     return `<div class="tm ${isHome ? 'h' : 'a'}${S.sel.has(t.key) ? ' me' : ''}">${isHome ? name + logo(t) : logo(t) + name}</div>`;
   }
 
@@ -309,6 +349,19 @@ if (typeof document !== 'undefined') {
       <small>${g.status === 'live' ? '<span class="live-t">LIVE</span>' : g.pen ? `PK ${g.pen[0]}:${g.pen[1]}` : '종료'}</small></div>`;
   }
 
+  /** 한국 선수 배지: 라인업 발표 후엔 선발/벤치, 그 전엔 소속 선수 이름 */
+  function krTag(g) {
+    if (g.sport !== 'football') return '';
+    const flag = ic('kr', 'flag');
+    if (g.krl) {
+      const ps = g.krl.filter((p) => p.name);
+      if (!ps.length) return '';
+      return ps.map((p) => `<span class="tag kr${p.s ? ' on' : ''}">${flag}${esc(p.name)} ${p.s ? '선발' : '벤치'}</span>`).join('');
+    }
+    const names = [g.home, g.away].flatMap((t) => ((S.teamByKey.get(t.key) || {}).kr || []).map((p) => p.name));
+    return names.length ? `<span class="tag kr">${flag}${names.map(esc).join(' · ')}</span>` : '';
+  }
+
   function card(g) {
     const ci = core.compInfo(g), big = core.isBig(g, S.lck);
     const focus = core.focusTeam(g, S.sel);
@@ -316,14 +369,15 @@ if (typeof document !== 'undefined') {
     const meta = [g.round, g.sport === 'lol' && g.bo ? `Bo${g.bo}` : ''].filter(Boolean).map(esc).join(' · ');
     const acts = [];
     if (nv) acts.push(ext(nv, 'nvbtn', `${ic('tv')}<span>${g.sport === 'lol' && g.status !== 'end' ? '네이버 중계/일정' : '네이버 일정'}</span>${ic('ext', 'sm')}`));
-    if (g.status !== 'end') for (const w of core.watchFor(g)) acts.push(ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`));
+    for (const w of core.watchFor(g)) if (g.status !== 'end' || w.always) acts.push(ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`));
+    if (g.status === 'end') acts.push(ext(core.highlightUrl(g), 'sq hl', `${ic('play', 'fill')}<span>하이라이트</span>`, '유튜브에서 하이라이트 찾기'));
     if (core.canLineup(g)) acts.push(`<button class="sq lu" data-lineup="${esc(g.id)}" type="button" title="라인업 확인" aria-label="라인업 확인">${ic('shirt')}<span>라인업</span></button>`);
     if (g.status === 'before') acts.push(`<button class="sq" data-ics="${esc(g.id)}" type="button" title="내 캘린더에 추가" aria-label="내 캘린더에 추가">${ic('calplus')}</button>`);
     return `<article class="card${g.status === 'live' ? ' is-live' : ''}${big ? ' is-big' : ''}">
       <div class="c-meta">
         <div class="mr"><span class="time">${ic('clock')}<b>${core.hm(g.start)}</b><small>KST</small></span>
         <span class="cbadge c-${ci.cls}">${ci.abbr ? `<b>${esc(ci.abbr)}</b><i>·</i>` : ''}${esc(ci.name)}</span></div>
-        <div class="mr">${g.status === 'live' ? '<span class="tag live">● LIVE</span>' : ''}${big ? `<span class="tag big">${ic('flame', 'fill')}BIG MATCH</span>` : ''}</div>
+        <div class="mr">${g.status === 'live' ? '<span class="tag live">● LIVE</span>' : ''}${big ? `<span class="tag big">${ic('flame', 'fill')}BIG MATCH</span>` : ''}${krTag(g)}</div>
         <p class="sub">${meta}${meta && g.venue ? ' · ' : ''}${g.venue ? `${ic('pin', 'sm')}${esc(g.venue)}` : ''}</p>
       </div>
       <div class="c-match">${teamBox(g.home, g, true)}${center(g)}${teamBox(g.away, g, false)}</div>
@@ -387,11 +441,56 @@ if (typeof document !== 'undefined') {
       <div class="wgrid">${cols}</div></div>`;
   }
 
+  /* ---------- 순위표 (탭을 열 때만 standings.json 을 받음) ---------- */
+  async function loadStandings() {
+    if (S.st && Date.now() - S.stT < 10 * 60e3) return;
+    try {
+      const r = await fetch('data/standings.json', { cache: 'no-cache' });
+      if (!r.ok) throw new Error(r.status);
+      S.st = await r.json(); S.stT = Date.now();
+    } catch (_) { S.st = S.st || { tables: {} }; }
+  }
+
+  function renderStandings() {
+    const root = $('list');
+    if (!S.st) { root.innerHTML = '<p class="empty">순위표 불러오는 중…</p>'; loadStandings().then(() => S.tab === 'tbl' && renderStandings()); return; }
+    if (Date.now() - S.stT > 10 * 60e3) loadStandings().then(() => S.tab === 'tbl' && S.stT > Date.now() - 5e3 && renderStandings());
+    const T = S.st.tables || {};
+    const order = ['epl', 'laliga', 'ucl', 'lck'].filter((k) => T[k]);
+    if (!order.length) { root.innerHTML = '<p class="empty">순위표가 아직 없어요. 다음 자동 동기화 후 생겨요.</p>'; return; }
+    if (!order.includes(S.lt)) {                                   // 내 구단이 가장 많은 리그를 먼저
+      S.lt = order.map((k) => [k, T[k].rows.filter((r) => S.sel.has(r.key)).length]).sort((a, b) => b[1] - a[1])[0][0];
+    }
+    const t = T[S.lt], lol = S.lt === 'lck';
+    const cls = { epl: 'epl', laliga: 'laliga', ucl: 'ucl', lck: 'lck' };
+    const zc = (z) => (z ? `style="--z:${esc(z.replace(/^#+/, '#'))}"` : '');
+    const zones = [...new Map(t.rows.filter((r) => r.zn).map((r) => [r.zn, r.z])).entries()];
+    const head = lol ? '<th>경기</th><th>승</th><th>패</th><th class="hs">세트</th><th>득실</th>'
+      : '<th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>승점</th>';
+    const rows = t.rows.map((r) => {
+      const me = S.sel.has(r.key);
+      const team = S.teamByKey.get(r.key);
+      const fm = team && team.form ? `<span class="fm sm">${[...team.form].map((x) => `<i class="r${x}">${{ W: '승', D: '무', L: '패' }[x]}</i>`).join('')}</span>` : '';
+      const cells = lol ? `<td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td class="hs">${r.sw}-${r.sl}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td>`
+        : `<td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td>`;
+      return `<tr class="${me ? 'me' : ''}" ${zc(r.z)}><td class="rk"><span${r.z ? ' class="zb"' : ''}>${r.r}</span></td>
+        <td class="tmc"><div class="tmi">${logo(r, 'lg xs')}<span>${me ? ic('star', 'fill gold star') : ''}${esc(r.name)}</span>${fm}</div></td>${cells}</tr>`;
+    }).join('');
+    root.innerHTML = `<div class="panel stand">
+      <div class="stabs">${order.map((k) => `<button type="button" data-lt="${k}" class="cchip c-${cls[k]}${k === S.lt ? ' on' : ''}"><span>${esc(T[k].name)}</span><em>${T[k].rows.filter((r) => S.sel.has(r.key)).length || ''}</em></button>`).join('')}</div>
+      <div class="shead"><h2>${esc(t.name)} <small>${esc(t.season)}</small></h2><span class="dn">출처: ${esc(t.src)}</span></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th class="tmc">팀 <small>최근 5경기</small></th>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+      ${zones.length ? `<p class="zones">${zones.map(([n, z]) => `<span ${zc(z)}><i></i>${esc(core.zoneLabel(n))}</span>`).join('')}</p>` : ''}
+      ${lol ? '<p class="zones">순위는 정규시즌 승수 → 세트 득실 순으로 정렬했어요. 공식 동률 규정(승자승 등)과 다를 수 있어요.</p>' : ''}</div>`;
+  }
+
   function render() {
     if (!S.data) return;
     renderHeader(); renderStats(); renderFav();
     for (const b of $('tabs').children) b.setAttribute('aria-selected', b.dataset.tab === S.tab);
     $('big').setAttribute('aria-pressed', S.big);
+    document.body.classList.toggle('t-tbl', S.tab === 'tbl');
+    if (S.tab === 'tbl') return renderStandings();
     const base = S.sel.size ? scoped() : [];
     renderFilters(base);
     const gs = byFilter(base);
@@ -441,16 +540,20 @@ if (typeof document !== 'undefined') {
         const x = (W * (j + 1)) / (r.length + 1);
         const last = p.name.split(' ').slice(-1)[0];
         const nm = esc(r.length >= 4 || p.name.length > 11 ? (last.length > 10 ? last.slice(0, 9) + '…' : last) : p.name);
-        dots += `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><circle r="14" class="${i ? 'pl' : 'gk'}"/><text class="no" dy="4.5">${esc(p.n)}</text><text class="pn" dy="28">${nm}</text></g>`;
+        const ko = (S.data.kr || {})[p.id];
+        dots += `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})"${ko ? ' class="krp"' : ''}>${ko ? '<circle r="18.5" class="kr1"/><circle r="18.5" class="kr2"/>' : ''}<circle r="14" class="${i ? 'pl' : 'gk'}"/><text class="no" dy="4.5">${esc(p.n)}</text><text class="pn" dy="${ko ? 31 : 28}">${esc(ko || '') || nm}</text></g>`;
       });
     });
+    const kr = S.data.kr || {};
+    const krs = t.rows.flat().filter((p) => kr[p.id]).map((p) => `${kr[p.id]} 선발`).concat(t.subs.filter((p) => kr[p.id]).map((p) => `${kr[p.id]} 벤치`));
     return `<figure class="pitch"><figcaption>${logo(tm, 'lg sm')}<b>${esc(tm.name)}</b><span>${esc(t.formation)}</span></figcaption>
+      ${krs.length ? `<p class="krline">${ic('kr', 'flag')}${krs.map(esc).join(' · ')}</p>` : ''}
       <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(tm.name)} 선발 라인업"><defs><linearGradient id="turf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f6b3e"/><stop offset="1" stop-color="#154d2c"/></linearGradient></defs>
         <rect fill="url(#turf)" x="0" y="0" width="${W}" height="${H}" rx="12"/>
         ${[0, 1, 2, 3, 4, 5, 6].map((k) => `<rect x="0" y="${k * 54}" width="${W}" height="27" fill="rgba(255,255,255,.025)"/>`).join('')}
         <g class="ln2"><rect x="10" y="10" width="${W - 20}" height="${H - 20}" rx="4"/><circle cx="${W / 2}" cy="10" r="40"/><rect x="${W / 2 - 70}" y="${H - 68}" width="140" height="58"/><rect x="${W / 2 - 32}" y="${H - 30}" width="64" height="20"/></g>
         ${dots}</svg>
-      <details><summary>교체 명단 ${t.subs.length}명</summary><p>${t.subs.map((p) => `<span><b>${esc(p.n)}</b> ${esc(p.name)}</span>`).join('')}</p></details></figure>`;
+      <details${t.subs.some((p) => kr[p.id]) ? ' open' : ''}><summary>교체 명단 ${t.subs.length}명</summary><p>${t.subs.map((p) => `<span${kr[p.id] ? ' class="krs"' : ''}><b>${esc(p.n)}</b> ${esc(kr[p.id] || p.name)}</span>`).join('')}</p></details></figure>`;
   }
 
   async function openLineup(id) {
@@ -511,16 +614,32 @@ if (typeof document !== 'undefined') {
     }
   }
 
+  /* 실제 마지막 동기화 시각 (GitHub Pages 에서만, 화면에 보일 때 최대 10분에 한 번) */
+  async function loadRun() {
+    const rp = core.repoFromLocation(location.hostname, location.pathname);
+    if (!rp || Date.now() - (loadRun.t || 0) < 9 * 60e3) return;
+    loadRun.t = Date.now();
+    try {
+      const r = await fetch(CFG.runsUrl(rp.owner, rp.repo), { headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) return;
+      const runs = (await r.json()).workflow_runs || [];
+      S.run = runs.find((x) => x.status === 'completed') || null;
+      renderHeader();
+    } catch (_) { /* 실패하면 일정 파일 시각으로 표시 */ }
+  }
+
   function schedule() {
     clearTimeout(schedule.t);
     if (document.hidden) return;                                  // 안 보이는 동안은 타이머 자체를 끈다
     const live = S.data && S.data.games.some((g) => g.status === 'live' && mine(g));
-    schedule.t = setTimeout(async () => { await load(true); renderHeader(); renderStats(); schedule(); }, live ? CFG.liveRefreshMs : CFG.refreshMs);
+    schedule.t = setTimeout(async () => { await load(true); loadRun(); renderHeader(); renderStats(); schedule(); }, live ? CFG.liveRefreshMs : CFG.refreshMs);
   }
 
   /* ---------- 이벤트 ---------- */
   const setTab = (t) => { S.tab = t; S.shown = CFG.pageSize; S.jump = t === 'all'; save_('sh.tab', t); render(); };
   document.addEventListener('click', (e) => {
+    const lt = e.target.closest('[data-lt]');
+    if (lt) { S.lt = lt.dataset.lt; renderStandings(); return; }
     const el = e.target.closest('[data-lineup],[data-open],[data-more],[data-close],[data-clear],[data-tab],[data-flt],[data-focus],[data-reveal],[data-ics],[data-week],[data-pop],#refresh,#spoiler,#big');
     if (!el) return;
     const ds = el.dataset;
@@ -537,7 +656,7 @@ if (typeof document !== 'undefined') {
     else if (el.hasAttribute('data-more')) { S.shown += CFG.pageSize; render(); }
     else if (el.hasAttribute('data-clear')) { S.sel.clear(); save_('sh.teams', []); renderPicker(); $('cnt').textContent = 0; }
     else if (el.hasAttribute('data-close')) el.closest('dialog').close();
-    else if (el.id === 'refresh') { el.classList.add('spin'); load(true).finally(() => setTimeout(() => el.classList.remove('spin'), 600)); }
+    else if (el.id === 'refresh') { el.classList.add('spin'); S.stT = 0; loadRun.t = 0; loadRun(); load(true).finally(() => setTimeout(() => el.classList.remove('spin'), 600)); }
     else if (el.id === 'spoiler') { S.spoil = !S.spoil; S.revealed.clear(); save_('sh.spoil', S.spoil); render(); }
     else if (el.id === 'big') { S.big = !S.big; S.shown = CFG.pageSize; render(); }
   });
@@ -568,9 +687,10 @@ if (typeof document !== 'undefined') {
     const t = e.target;
     if (t.tagName === 'IMG' && t.classList.contains('lg')) t.replaceWith(Object.assign(document.createElement('span'), { className: t.className + ' ph' }));
   }, true);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).then(() => { renderHeader(); renderStats(); schedule(); }); else clearTimeout(schedule.t); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false).then(() => { loadRun(); renderHeader(); renderStats(); schedule(); }); else clearTimeout(schedule.t); });
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   renderHeader();
   load(true).then(schedule);
+  loadRun();
 }

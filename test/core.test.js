@@ -30,9 +30,10 @@ assert.strictEqual(core.showHomeAway(byId.l1), false);
 assert.strictEqual(core.canLineup(byId.a), true);
 assert.strictEqual(core.canLineup(byId.l1), false);
 // 중계처
-assert.deepStrictEqual(core.watchFor(byId.a).map((w) => w.id), ['coupang']);
-assert.deepStrictEqual(core.watchFor(byId.u).map((w) => w.id), ['spotv']);
-assert.deepStrictEqual(core.watchFor(byId.k).map((w) => w.id), []);
+assert.deepStrictEqual(core.watchFor(byId.a).map((w) => w.id), ['coupang', 'youtube']);
+assert.deepStrictEqual(core.watchFor(byId.u).map((w) => w.id), ['spotv', 'youtube']);
+assert.deepStrictEqual(core.watchFor(byId.k).map((w) => w.id), ['youtube']);
+assert.strictEqual(core.watchFor(byId.a)[1].url, 'https://www.youtube.com/@PJY_football');
 assert.deepStrictEqual(core.watchFor(byId.l1).map((w) => w.url),
   ['https://chzzk.naver.com/live/0b33823ac81de48d5b78a38cdbc0ab94', 'https://play.sooplive.com/townboy/298226683']);
 // 필터
@@ -70,5 +71,19 @@ assert.strictEqual(core.isBig({ ...byId.l2, round: '결승' }), true);
 // 캘린더(.ics): UTC 시각, 30분 전 알림
 const ics = core.ics(byId.c, 'https://x.test');
 assert.ok(ics.includes('DTSTART:20261202T201500Z') && ics.includes('TRIGGER:-PT30M') && ics.includes('SUMMARY:뉴캐슬 vs 맨유 (프리미어리그)'), ics);
+
+// 실제 동기화 시각 조회용 저장소 주소 추출
+assert.deepStrictEqual(core.repoFromLocation('vvdlcksvv.github.io', '/sports-hub/'), { owner: 'vvdlcksvv', repo: 'sports-hub' });
+assert.deepStrictEqual(core.repoFromLocation('me.github.io', '/'), { owner: 'me', repo: 'me.github.io' });
+assert.strictEqual(core.repoFromLocation('localhost', '/'), null);
+assert.strictEqual(core.agoText(5 * 60e3), '5분 전');
+assert.strictEqual(core.agoText(125 * 60e3), '2시간 5분 전');
+
+// 하이라이트 검색 링크, 순위 구간 한글
+assert.ok(core.highlightUrl({ ...byId.a, status: 'end' }).startsWith('https://www.youtube.com/results?search_query='));
+assert.ok(decodeURIComponent(core.highlightUrl(byId.l1)).includes('T1 vs HLE WORLDS 하이라이트'));
+assert.strictEqual(core.zoneLabel('Relegation'), '강등');
+// 라인업 선수에 ESPN 선수 id 포함 (한국 선수 표시용)
+assert.ok(lu.away.rows.flat().every((p) => /^\d+$/.test(p.id)));
 
 console.log('모든 테스트 통과');
