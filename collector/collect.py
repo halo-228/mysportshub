@@ -331,6 +331,46 @@ def collect_korean(teams):
     return kr, by_team
 
 
+ICS_DIR = os.path.join(ROOT, 'data', 'ics')
+
+
+def write_team_calendars(teams, games):
+    """팀별 캘린더 구독 파일 data/ics/<팀>.ics — 구글/아이폰 캘린더가 몇 시간마다 알아서 다시 읽는다. 바뀐 파일만 저장."""
+    os.makedirs(ICS_DIR, exist_ok=True)
+    esc = lambda x: str(x or '').replace('\\', '\\\\').replace(';', '\\;').replace(',', '\\,').replace('\n', '\\n')
+    utc = lambda iso: dt.datetime.fromisoformat(iso).astimezone(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    changed = 0
+    for t in teams:
+        mine = [g for g in games if t['key'] in (g['home']['key'], g['away']['key'])]
+        lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//MySportsHub//KO', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+                 f'X-WR-CALNAME:{esc("MySportsHub · " + t["name"])}', 'X-WR-TIMEZONE:Asia/Seoul',
+                 'REFRESH-INTERVAL;VALUE=DURATION:PT6H', 'X-PUBLISHED-TTL:PT6H']
+        for g in mine:
+            st = dt.datetime.fromisoformat(g['start'])
+            en = st + dt.timedelta(hours=3 if g['sport'] == 'lol' else 2)
+            res = f'[{g["score"][0]}:{g["score"][1]}] ' if g['status'] == 'end' and g.get('score') else '[연기] ' if g['status'] == 'off' else ''
+            lines += ['BEGIN:VEVENT', f'UID:{g["id"]}@mysportshub', f'DTSTAMP:{utc(g["start"])}', f'DTSTART:{utc(g["start"])}',
+                      f'DTEND:{en.astimezone(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")}',
+                      f'SUMMARY:{esc(res + g["home"]["name"] + " vs " + g["away"]["name"])}',
+                      f'DESCRIPTION:{esc(" · ".join(x for x in (g.get("comp"), g.get("round")) if x))}']
+            if g.get('venue'):
+                lines.append(f'LOCATION:{esc(g["venue"])}')
+            lines.append('END:VEVENT')
+        lines.append('END:VCALENDAR')
+        body = '\r\n'.join(lines) + '\r\n'
+        path = os.path.join(ICS_DIR, t['key'].replace(':', '-') + '.ics')
+        try:
+            same = open(path, encoding='utf-8', newline='').read() == body
+        except Exception:  # noqa: BLE001
+            same = False
+        if not same:
+            with open(path, 'w', encoding='utf-8', newline='') as f:
+                f.write(body)
+            changed += 1
+    if changed:
+        print(f'캘린더 파일 {changed}개 갱신')
+
+
 def collect_standings(lck_games, teams_by_key):
     """EPL·라리가·챔스(ESPN 공식 순위) + LCK(올해 정규시즌 경기 결과로 집계)"""
     out = {}
@@ -511,7 +551,7 @@ def finalize_side(s, codes, logo_cache):
 
 def write_if_changed(out, old):
     keep = lambda d: json.dumps({k: d.get(k) for k in ('teams', 'games', 'errors', 'kr')}, sort_keys=True, ensure_ascii=False)
-    if old and keep(out) == keep(old):
+    if old and keep(out) == keep(old) and out.get('full_at', '')[:13] == (old.get('full_at') or '')[:13]:
         print('변경 없음 — 저장하지 않음')
         return False
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
@@ -573,9 +613,11 @@ def full():
     for g in games:
         if g['id'] in old_krl:
             g['krl'] = old_krl[g['id']]
-    out = {'updated': now.isoformat(timespec='seconds'), 'errors': ferr + lerr, 'teams': teams, 'games': games, 'kr': kr}
+    out = {'updated': now.isoformat(timespec='seconds'), 'full_at': now.isoformat(timespec='seconds'),
+           'errors': ferr + lerr, 'teams': teams, 'games': games, 'kr': kr}
     write_if_changed(out, old)
 
+    write_team_calendars(teams, games)
     st = collect_standings(year_lck, {t['key']: t for t in teams})
     try:
         old_st = json.load(open(STANDINGS, encoding='utf-8'))
@@ -590,9 +632,11 @@ def full():
 def hot():
     """진행 중이거나 20분 안에 시작하는 경기만 다시 확인. 없으면 아무것도 안 하고 끝."""
     old = load_old()
-    if not old.get('games'):
-        return full()
     now = dt.datetime.now(KST)
+    full_at = old.get('full_at') or old.get('updated')
+    if not old.get('games') or not full_at or (now - dt.datetime.fromisoformat(full_at)).total_seconds() > 13 * 3600:
+        print('전체 수집이 13시간 넘게 안 돌아서 full 로 실행')        # 예약 실행이 밀리거나 취소된 경우 대비
+        return full()
     targets = []
     for g in old['games']:
         st = dt.datetime.fromisoformat(g['start'])
@@ -600,7 +644,7 @@ def hot():
         if g['status'] == 'live' or (g['status'] == 'before' and -75 <= mins <= 240):
             targets.append(g)
     if not targets:
-        print('확인할 경기 없음')
+        print('확인할 경기 없음 NO_TARGETS')
         return
     by_id = {g['id']: g for g in old['games']}
     changed = 0

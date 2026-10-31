@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>마이 스포츠 일정 허브</title>
+<title>MySportsHub</title>
+<meta name="application-name" content="MySportsHub">
+<meta name="apple-mobile-web-app-title" content="MySportsHub">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="내 관심 구단의 리그·챔스·컵대회·A매치·LCK·월즈 경기를 한 곳에서">
 <meta name="theme-color" content="#060914">
 <link rel="manifest" href="manifest.webmanifest">
@@ -58,7 +62,7 @@
     <nav class="hd-act" aria-label="설정">
       <button id="spoiler" class="hb hb-gold" type="button" aria-pressed="false"><svg class="ic"><use href="#i-eyeoff"/></svg><span class="lbl">스포일러 방지 <b>OFF</b></span></button>
       <button id="refresh" class="hb" type="button"><svg class="ic"><use href="#i-sync"/></svg><span class="lbl">일정 동기화</span></button>
-      <button class="hb hb-green" type="button" data-open="nv"><svg class="ic"><use href="#i-code"/></svg><span class="lbl">네이버 연동 설정</span></button>
+      <button class="hb hb-green" type="button" data-open="nv"><svg class="ic"><use href="#i-code"/></svg><span class="lbl">연동 설정</span></button>
       <button class="hb hb-primary" type="button" data-open="picker"><svg class="ic fill"><use href="#i-star"/></svg><span class="lbl">내 관심 구단 설정</span> <span>(<b id="cnt">0</b>개)</span></button>
     </nav>
   </div>
@@ -121,13 +125,35 @@
   <div id="msgB" class="db"></div>
 </dialog>
 <dialog id="nv" class="dlg">
-  <div class="dh"><strong>네이버 연동 설정</strong><button class="mini ok" data-close type="button">완료</button></div>
+  <div class="dh"><strong>연동 설정</strong><button class="mini ok" data-close type="button">완료</button></div>
   <div class="db">
+    <h3 class="sec">일정 동기화 버튼으로 전체 수집하기</h3>
+    <p class="help">평소엔 매일 03:00·15:00에 자동으로 전체 일정을 수집해요. 상단 <b>일정 동기화</b> 버튼으로 지금 바로 수집하려면 GitHub 토큰이 한 번 필요해요. 토큰은 <b>이 기기 브라우저에만</b> 저장돼요.</p>
+    <ol class="steps">
+      <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub 토큰 만들기</a> 열기 (로그인 필요)</li>
+      <li>Token name: <code>MySportsHub</code> · Expiration: <b>1년</b> (또는 원하는 기간)</li>
+      <li>Repository access: <b>Only select repositories</b> → 이 사이트 저장소 선택</li>
+      <li>Permissions → Repository permissions → <b>Actions: Read and write</b></li>
+      <li><b>Generate token</b> → 나온 <code>github_pat_…</code> 를 아래에 붙여넣기</li>
+    </ol>
+    <div class="tokrow"><input id="ghTok" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" aria-label="GitHub 토큰"><button class="mini ok" id="ghSave" type="button">저장</button><button class="mini" id="ghDel" type="button">삭제</button></div>
+    <p id="ghState" class="help"></p>
+    <h3 class="sec">네이버 일정 링크 팀코드</h3>
     <p class="help">"네이버 중계/일정" 버튼은 <b>그 팀의 그 달 첫 경기 날짜 + 팀코드</b>로 한 달 내내 고정돼요. 팀코드가 비어 있으면 대회 전체 일정으로 열려요.<br>
     네이버 스포츠에서 팀을 눌렀을 때 주소의 <code>teamCode=</code> 숫자를 넣으면 이 기기에 저장돼요.</p>
     <div id="nvList"></div>
   </div>
 </dialog>
+
+<dialog id="cal" class="dlg">
+  <div class="dh"><strong>캘린더 구독</strong><button class="mini ok" data-close type="button">완료</button></div>
+  <div class="db">
+    <p class="help">구독해 두면 휴대폰·PC 캘린더에 그 팀 경기가 자동으로 들어오고, 일정이 바뀌면 캘린더도 몇 시간 안에 따라 바뀌어요. 끝난 경기 제목엔 점수가 붙어요.</p>
+    <div id="calList"></div>
+    <p class="help small">구글 캘린더는 휴대폰 앱이 아니라 <b>PC 브라우저</b>에서 추가해야 해요(추가 후엔 휴대폰에도 보여요). 아이폰은 "아이폰" 버튼을 누르면 바로 구독돼요.</p>
+  </div>
+</dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="app.js" defer></script>
 </body>

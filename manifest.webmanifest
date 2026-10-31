@@ -1,14 +1,32 @@
 {
-  "name": "내 경기 일정",
-  "short_name": "경기일정",
+  "name": "MySportsHub",
+  "short_name": "MySportsHub",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0a0f24",
-  "theme_color": "#0a0f24",
+  "background_color": "#060914",
+  "theme_color": "#060914",
   "icons": [
-    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "description": "내 관심 구단의 리그·챔스·컵대회·A매치·LCK·월즈 경기 일정",
+  "lang": "ko",
+  "id": "./"
 }
