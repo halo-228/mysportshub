@@ -236,7 +236,7 @@ if (typeof document !== 'undefined') {
   const logo = (t, cls = 'lg') => t && t.logo
     ? `<img class="${cls}" src="${esc(t.logo)}" alt="" loading="lazy" decoding="async">`
     : `<span class="${cls} ph">${esc(((t && (t.abbr || t.name)) || '?').replace(/[^0-9A-Za-z가-힣]/g, '').slice(0, 3))}</span>`;
-  const nvBtn = (href, long) => ext(href, 'nvbtn', `<img class="nvi" src="assets/watch/naver.svg" alt="" width="18" height="18"><span class="lt">${long}</span><span class="st">네이버</span>${ic('ext', 'sm ex')}`, long);
+  const nvBtn = (href, label, inCard) => ext(href, 'nvbtn', inCard ? `${ic('tv')}<span>${label}</span>${ic('ext', 'sm')}` : `${label}${ic('ext')}`);
   const mine = (g) => S.sel.has(g.home.key) || S.sel.has(g.away.key);
   const ext = (href, cls, inner, title = '') => `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener"${title ? ` title="${esc(title)}" aria-label="${esc(title)}"` : ''}>${inner}</a>`;
 
@@ -312,7 +312,7 @@ if (typeof document !== 'undefined') {
     box.innerHTML = `<p class="stat-k next-k">NEXT MATCH · 가장 빠른 일정 <span class="cd">${cd}</span></p>
       <div class="next-b"><div class="next-m"><p class="next-t"><span class="nt">${logo(nx.home, 'lg sm')}<b>${esc(nx.home.name)}</b></span><i>vs</i><span class="nt">${logo(nx.away, 'lg sm')}<b>${esc(nx.away.name)}</b></span></p>
       <p class="next-s">${core.md(d)} (${core.wd(d)}) ${core.hm(nx.start)} · <span class="c-${ci.cls}-t">${esc(ci.name)}</span></p></div>
-      <div class="next-a">${nv ? nvBtn(nv, nx.sport === 'lol' ? '네이버 중계' : '네이버 일정') : ''}${core.watchFor(nx).map((w) => ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`)).join('')}</div></div>`;
+      <div class="next-a">${nv ? nvBtn(nv, nx.sport === 'lol' ? '네이버 중계' : '네이버 일정', false) : ''}${core.watchFor(nx).map((w) => ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`)).join('')}</div></div>`;
   }
 
   function renderFav() {
@@ -373,7 +373,7 @@ if (typeof document !== 'undefined') {
     const nv = core.naverLink(g, focus, S.first, S.codes);
     const meta = [g.round, g.sport === 'lol' && g.bo ? `Bo${g.bo}` : ''].filter(Boolean).map(esc).join(' · ');
     const acts = [];
-    if (nv) acts.push(nvBtn(nv, g.sport === 'lol' && g.status !== 'end' ? '네이버 중계/일정' : '네이버 일정'));
+    if (nv) acts.push(nvBtn(nv, g.sport === 'lol' && g.status !== 'end' ? '네이버 중계/일정' : '네이버 일정', true));
     for (const w of core.watchFor(g)) if (g.status !== 'end' || w.always) acts.push(ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`));
     if (g.status === 'end') acts.push(ext(core.highlightUrl(g), 'sq hl', `${ic('play', 'fill')}<span>하이라이트</span>`, '유튜브에서 하이라이트 찾기'));
     if (core.canLineup(g)) acts.push(`<button class="sq lu" data-lineup="${esc(g.id)}" type="button" title="라인업 확인" aria-label="라인업 확인">${ic('shirt')}<span>라인업</span></button>`);
