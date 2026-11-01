@@ -43,4 +43,13 @@ SUMMARY:[1:2] LYON vs Invictus Gaming
 DESCRIPTION:월즈 · 스위스 4R
 LOCATION:미국 댈러스 Allen Credit Union of Texas Event Center
 END:VEVENT
+BEGIN:VEVENT
+UID:l20261104073selG632765lol@mysportshub
+DTSTAMP:20261103T220000Z
+DTSTART:20261103T220000Z
+DTEND:20261104T010000Z
+SUMMARY:Top Esports vs Invictus Gaming
+DESCRIPTION:월즈 · 8강
+LOCATION:미국 댈러스 Allen Credit Union of Texas Event Center
+END:VEVENT
 END:VCALENDAR
