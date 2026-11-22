@@ -193,24 +193,47 @@ const core = {
   },
   player: (p) => ({ id: String((p.athlete && p.athlete.id) || ''), n: p.jersey || '', name: (p.athlete && (p.athlete.shortName || p.athlete.displayName)) || '', pos: (p.position && p.position.abbreviation) || '' }),
 
-  /** 포지션 코드로 앞뒤(깊이)·좌우를 정하고, 포메이션 숫자대로 줄을 나눈다 */
+  /** Opta 포메이션 자리 번호(ESPN formationPlace) 2~11번의 [앞뒤, 좌우] 위치.
+   *  앞뒤: 작을수록 우리 골대 쪽(수비) · 좌우: 작을수록 왼쪽. (출처: mplsoccer 의 Opta 포메이션 표)
+   *  경기 전 ESPN 라인업은 포지션이 D·M·F 로만 와서, 실제 자리는 이 번호로만 알 수 있다. */
+  SLOTS: {
+    '343': [42,90,42,10,27,30,27,50,27,70,58,70,58,30,88,50,73,90,73,10], '352': [42,90,42,10,27,30,27,50,27,70,58,70,58,30,88,38,88,62,58,50],
+    '424': [27,88,27,12,42,70,27,62,27,38,73,88,42,30,88,62,88,38,73,12], '433': [27,88,27,12,42,50,27,62,27,38,58,70,58,30,88,50,73,90,73,10],
+    '442': [27,88,27,12,58,62,27,62,27,38,58,88,58,38,88,38,88,62,58,12], '451': [27,88,27,12,58,70,27,62,27,38,58,90,58,30,88,50,58,50,58,10],
+    '532': [27,90,27,10,27,30,27,50,27,70,58,70,42,50,88,38,88,62,58,30], '541': [27,90,27,10,27,30,27,50,27,70,58,88,58,62,88,50,58,38,58,12],
+    '3142': [58,88,58,12,27,50,27,70,27,30,58,62,42,50,88,70,88,30,58,38], '3241': [42,62,42,38,27,30,27,50,27,70,73,62,73,38,88,50,73,88,73,12],
+    '3331': [42,70,42,30,27,30,27,50,27,70,73,50,42,50,88,50,58,90,58,10], '3412': [42,90,42,10,27,30,27,50,27,70,58,70,58,30,73,50,88,70,88,30],
+    '3421': [42,88,42,12,27,30,27,50,27,70,42,62,42,38,88,50,73,62,73,38], '3511': [42,90,42,10,27,30,27,70,27,50,58,70,58,30,88,50,73,50,42,50],
+    '4132': [27,88,27,12,42,50,27,62,27,38,73,88,73,50,88,70,88,30,73,12], '4141': [27,88,27,12,42,50,27,62,27,38,58,88,58,62,88,50,58,38,58,12],
+    '4222': [27,88,27,12,58,70,27,62,27,38,73,90,58,30,88,30,88,70,73,10], '4231': [27,88,27,12,42,30,27,62,27,38,73,90,42,70,88,50,73,50,73,10],
+    '4312': [27,88,27,12,58,50,27,62,27,38,58,70,73,50,88,62,88,38,58,30], '4321': [27,88,27,12,58,50,27,62,27,38,58,30,58,70,88,50,73,90,73,10],
+    '4411': [27,88,27,12,58,62,27,62,27,38,58,88,58,38,88,50,73,50,58,12], '31213': [58,70,58,30,27,30,27,50,27,70,73,50,42,50,88,50,73,90,73,10],
+    '31312': [50,70,50,30,24,30,24,50,24,70,37,50,50,50,76,50,88,70,88,30], '41212': [27,88,27,12,42,50,27,62,27,38,58,70,73,50,88,38,88,62,58,30],
+  },
+
+  /** 포메이션 자리 번호(없으면 포지션 코드)로 앞뒤·좌우를 정하고, 포메이션 숫자대로 줄을 나눈다 */
   formationRows(starters, formation) {
-    const depth = (a) => (a === 'G' ? 0 : /^(CD|CB|LB|RB|SW)/.test(a) ? 1 : /WB/.test(a) ? 1.5 : /^DM/.test(a) ? 2
+    const depth = (a) => (a === 'G' ? 0 : /^(CD|CB|LB|RB|SW|D$)/.test(a) ? 1 : /WB/.test(a) ? 1.5 : /^DM/.test(a) ? 2
       : /^(CM|LM|RM|M)/.test(a) ? 3 : /^AM/.test(a) ? 4 : /^(LW|RW)/.test(a) ? 4.5 : 5);
     const side = (a) => (/^L(B|WB|M|W)$/.test(a) ? -2 : /^R(B|WB|M|W)$/.test(a) ? 2 : /-L$/.test(a) ? -1 : /-R$/.test(a) ? 1 : 0);
     const ps = starters.map((p) => ({ ...core.player(p), place: +p.formationPlace || 0 }));
     const gk = ps.filter((p) => p.pos === 'G');
-    const field = ps.filter((p) => p.pos !== 'G')
-      .sort((a, b) => depth(a.pos) - depth(b.pos) || side(a.pos) - side(b.pos) || a.place - b.place);
+    const field = ps.filter((p) => p.pos !== 'G');
     const counts = (formation || '').split('-').map(Number).filter((n) => n > 0);
+    const slot = core.SLOTS[counts.join('')];
+    const at = (p) => (slot && p.place >= 2 && p.place <= 11 ? [slot[2 * p.place - 4], slot[2 * p.place - 3]] : null);
+    const bySlot = !!slot && field.length === 10 && field.every(at) && new Set(field.map((p) => p.place)).size === 10;
+    const dk = bySlot ? (p) => at(p)[0] : (p) => depth(p.pos);
+    const lk = bySlot ? (p) => at(p)[1] : (p) => side(p.pos);
+    field.sort((a, b) => dk(a) - dk(b) || lk(a) - lk(b) || a.place - b.place);
     const rows = [gk.length ? gk : field.splice(0, 1)];
     if (counts.reduce((s, n) => s + n, 0) === field.length) {
       let i = 0;
-      for (const n of counts) { rows.push(field.slice(i, i + n).sort((a, b) => side(a.pos) - side(b.pos) || a.place - b.place)); i += n; }
+      for (const n of counts) { rows.push(field.slice(i, i + n).sort((a, b) => lk(a) - lk(b) || a.place - b.place)); i += n; }
     } else {
       const by = new Map();
-      for (const p of field) { const d = depth(p.pos); by.set(d, [...(by.get(d) || []), p]); }
-      for (const d of [...by.keys()].sort()) rows.push(by.get(d));
+      for (const p of field) { const d = dk(p); by.set(d, [...(by.get(d) || []), p]); }
+      for (const d of [...by.keys()].sort((a, b) => a - b)) rows.push(by.get(d));
     }
     return rows;
   },
@@ -312,7 +335,7 @@ if (typeof document !== 'undefined') {
     box.innerHTML = `<p class="stat-k next-k">NEXT MATCH · 가장 빠른 일정 <span class="cd">${cd}</span></p>
       <div class="next-b"><div class="next-m"><p class="next-t"><span class="nt">${logo(nx.home, 'lg sm')}<b>${esc(nx.home.name)}</b></span><i>vs</i><span class="nt">${logo(nx.away, 'lg sm')}<b>${esc(nx.away.name)}</b></span></p>
       <p class="next-s">${core.md(d)} (${core.wd(d)}) ${core.hm(nx.start)} · <span class="c-${ci.cls}-t">${esc(ci.name)}</span></p></div>
-      <div class="next-a">${nv ? nvBtn(nv, nx.sport === 'lol' ? '네이버 중계' : '네이버 일정', false) : ''}${core.watchFor(nx).map((w) => ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`)).join('')}</div></div>`;
+      <div class="next-a">${nv ? nvBtn(nv, nx.sport === 'lol' ? '네이버 중계' : '네이버 일정', false) : ''}${core.watchFor(nx).map((w) => ext(w.url, 'wbtn', `<img src="${w.logo}" alt="" width="20" height="20">`, `${w.name}에서 보기`)).join('')}${core.canLineup(nx) ? `<button class="sq lu" data-lineup="${esc(nx.id)}" type="button" style="height:36px" title="라인업 확인" aria-label="라인업 확인">${ic('shirt')}<span>라인업</span></button>` : ''}</div></div>`;
   }
 
   function renderFav() {
